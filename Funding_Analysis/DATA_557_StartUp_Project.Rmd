@@ -1,0 +1,235 @@
+---
+title: "Project: Analysis of Start-up Success"
+author: "Amit Peled"
+output:
+  html_document: default
+  pdf_document: default
+date: "2024-03-12"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r loadin_libraries, warning=FALSE, include=FALSE}
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(reshape2)
+library(nnet)
+library(lmtest)
+library(caret)
+library(broom)
+```
+
+## Read In Data
+
+```{r read_data}
+data <- read.csv("cleaned_investments_VC.csv")
+head(data)
+colnames(data)
+```
+
+## Data Manipualtion for Tests/Variables of Interest
+
+```{r}
+funding_types <- c('seed', 'venture', 'equity_crowdfunding', 'undisclosed', 'convertible_note', 
+                   'debt_financing', 'angel', 'grant', 'private_equity', 'post_ipo_equity', 
+                   'post_ipo_debt', 'secondary_market', 'product_crowdfunding')
+
+# Convert funding columns to numeric, ensuring NAs are turned into 0
+data_with_method_of_funding <- data %>%
+  mutate(across(all_of(funding_types), ~ifelse(is.na(.), 0, as.numeric(.))))
+
+# Function to determine the primary funding type
+determine_primary_funding <- function(row) {
+  funding_values <- as.numeric(row[names(row) %in% funding_types])
+  if (sum(funding_values) == 0) {
+    return('None')
+  } else {
+    return(names(row)[which.max(funding_values)])
+  }
+}
+
+data_with_method_of_funding$primary_funding_type <- apply(data_with_method_of_funding[, funding_types], 1, determine_primary_funding)
+
+data_with_method_of_funding$success_metric_updated <- ifelse(
+  data_with_method_of_funding$success_metric_updated == "Potentially Successful",
+  "Unsuccessful",
+  data_with_method_of_funding$success_metric_updated
+)
+
+head(data_with_method_of_funding)
+```
+
+
+## Exploratory Data Analysis
+
+### Distribution of Startup Success Categories
+```{r}
+ggplot(data_with_method_of_funding, aes(x = success_metric_updated, fill = success_metric_updated)) + 
+  geom_bar() +
+  scale_fill_manual(values=c("Successful"="darkgreen", "Unsuccessful"="darkred")) +
+  theme_minimal() +
+  labs(title = "Distribution of Startup Success Categories", x = "Success Category", y = "Count")
+```
+
+### Percentage of Startups by Success Category and Primary Funding Type
+
+```{r}
+data_with_method_of_funding %>%
+  group_by(primary_funding_type, success_metric_updated) %>%
+  summarize(count=n()) %>%
+  mutate(percentage = count / sum(count) * 100) %>%
+  ggplot(aes(x=primary_funding_type, y=percentage, fill=success_metric_updated)) +
+  geom_bar(stat="identity", position="dodge") +
+  scale_fill_manual(values=c("Successful"="darkgreen", "Unsuccessful"="darkred")) +
+  facet_wrap(~success_metric_updated, scales="free_y") +
+  labs(title="Percentage of Startups by Success Category and Primary Funding Type", x="Primary Funding Type", y="Percentage (%)", fill="Success Category") +
+  theme_minimal() +
+  theme(axis.text.x=element_text(angle=45, hjust=1), legend.position="top")
+
+```
+### Distribution of Total Funding by Funding Type and Success Category
+
+```{r}
+data_with_method_of_funding$total_funding <- rowSums(data_with_method_of_funding[, funding_types])
+
+ggplot(data_with_method_of_funding, aes(x=primary_funding_type, y=total_funding, fill=success_metric_updated)) +
+  geom_violin(trim=FALSE) +
+  geom_boxplot(width=0.1, fill="white", outlier.shape=NA) +
+  scale_fill_manual(values=c("Successful"="darkgreen", "Unsuccessful"="darkred")) +
+  scale_y_continuous(trans='log10') +
+  labs(title="Distribution of Total Funding by Funding Type and Success Category",
+       x="Primary Funding Type",
+       y="Total Funding (Log Scale)",
+       fill="Success Category") +
+  theme_minimal() +
+  theme(axis.text.x=element_text(angle=25, hjust=1),
+        legend.position="top")
+
+```
+
+### Correlation of Total Funding Amounts with Startup Success
+```{r}
+data_with_method_of_funding %>%
+  mutate(total_funding=rowSums(select(., all_of(funding_types))),
+         success_binary=ifelse(success_metric_updated=="Successful", 1, 0)) %>%
+  ggplot(aes(x=total_funding, y=success_binary, color=primary_funding_type)) +
+  geom_jitter(alpha=0.5) +
+  scale_x_log10() +
+  labs(title="Correlation of Total Funding Amounts with Startup Success", x="Total Funding Amount (Log Scale)", y="Success (Binary)") +
+  theme_minimal() +
+  theme(legend.position="right")
+```
+
+
+## Statistical Analysis Approaches
+
+### Chi-Square Test of Independence
+
+The Chi-Square Test was applied to determine whether a statistically significant relationship exists between the categorical variables: the type of funding and start up success rate.
+
+$H_0$ - There is no association between the type of funding and the success rate of start ups.
+
+$H_a$ - There is a significant association between the type of funding a start up receives and the success rate of start ups.
+
+The dataset categorizes start ups as either successful or unsuccessful, pooling those labeled “potentially successful” into the unsuccessful group. This test was chosen for its ability to evaluate the association between categorical variables in a contingency table format.
+
+To implement this analysis, one would construct a contingency table summarizing the frequencies of observed successes and failures across various funding types. The test compares the observed frequencies against the expected frequencies, which are calculated under the assumption that the variables are independent. For the Chi-Square Test to be valid, an important assumption is that the expected frequencies in each cell of the contingency table should be greater than 5. This ensures that the test has enough power to detect an association if one exists.
+
+A significant Chi-Square statistic may suggest that the type of funding does, in fact, influence a start up success rate, indicating that certain funding types are associated with higher or lower success rates. This may guide investors and entrepreneurs in making informed decisions about the funding strategies they want to pursue for their endeavors.
+
+
+```{r}
+# Filter for Chi-Square Test to include only “successful” and “unsuccessful” start ups
+data_chi_square <- data_with_method_of_funding %>% 
+  filter(success_metric_updated %in% c("Successful", "Unsuccessful"))
+
+# Create contingency table
+contingency_table <- table(data_chi_square$primary_funding_type, data_chi_square$success_metric_updated)
+print(contingency_table)
+
+# Chi-Square Test
+chi_square_result <- chisq.test(contingency_table)
+print(chi_square_result)
+```
+The Chi-Square test returned a test statistic of 4971.9 with 12 degrees of freedom and a p-value less than 2.2e-16, leading us to reject the null hypothesis at the 0.05 significance level. This outcome suggests a significant association between the type of funding and the success rate of start ups.
+
+```{r}
+
+table_prop <- prop.table(contingency_table, margin = 2) # Normalize by columns to get proportions
+melted_table <- melt(contingency_table) # Melt the table for ggplot
+
+# Create the heatmap
+ggplot(melted_table, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile(color = "white") +
+  scale_fill_gradient(low = "orange", high = "darkblue", name = "Proportion") +
+  theme_classic() + 
+  theme(axis.text.x = element_text(hjust = 1),
+        axis.title = element_text(size = 12, face = "bold"),
+        legend.position = "right") +
+  labs(title = "Normalized Heatmap of Startup Success by Funding Type",
+       subtitle = "Proportions within each funding type are shown",
+       x = "Funding Type",
+       y = "Success Category",
+       fill = "Proportion")
+
+
+```
+
+A normalized heatmap was created to better visualize the distribution of success across different funding types. The visual evidence from the heatmap indicates that venture and grant funding are more prevalently associated with successful startups. It should be noted that our success labels are biased towards companies that have gone public due to the time constraints in our logic for determining success. Conversely, funding types such as equity crowdfunding and product crowdfunding are less frequently associated with successful startups. This pattern may suggest that larger and more formal rounds of funding, such as venture capital, are better predictors of startup success compared to smaller, individual investments like angel investing.
+
+
+### Logistic Regression Analysis
+
+Logistic Regression was utilized to model the probability of startup success as a function of funding type. As the success metric is binary in our dataset, this method is appropriate for estimating the odds ratios of success across different funding types.
+
+To implement this analysis, the categorical variable indicating the type of funding would be transformed into a series of dummy variables, allowing for them to be used as predictors in the regression model. The dependent variable, startup success, would also be coded in binary terms. The logistic regression model is then defined and fitted to the dataset, allowing the estimation of success probabilities conditional on funding types.
+
+Interpreting the coefficients from the model would provide a quantitative measure of the association between funding type and success odds. This method offers an in-depth perspective of how different types of funding might affect the chances of a startup's success beyond the potentially discovered existence of an association indicated by the Chi-Square Test.
+
+
+```{r}
+funding_dummies <- model.matrix(~ primary_funding_type - 1, data=data_with_method_of_funding)
+data_with_method_of_funding <- cbind(data_with_method_of_funding, funding_dummies)
+
+# Fit the logistic regression model
+model_log <- multinom(success_metric_updated ~ funding_dummies, data=data_with_method_of_funding)
+tidy_model <- tidy(model_log) %>% 
+  mutate(term = gsub("funding_dummies", "", term))
+
+# standard errors and CIs from the model
+tidy_model <- tidy_model %>%
+  mutate(
+    std.error = abs(estimate) / qnorm(0.975),  # Assuming a z-dist for the standard error
+    conf.low = estimate - (1.96 * std.error),
+    conf.high = estimate + (1.96 * std.error)
+  )
+tidy_model$term <- gsub("primary_funding_type", "", tidy_model$term)
+print((tidy_model %>% select(-y.level)))
+```
+
+Following the logistic regression analysis, the model allowed for the extraction of probability predictions for each startup success category based on the funding type. All predictors in the model were found to be statistically significant, with the highest p-value for any term being 0.0461.
+
+```{r}
+# point estimates with CIs
+ggplot(tidy_model, aes(x=reorder(term, estimate), y=-estimate, color=estimate > 0)) +
+  geom_point() +
+  geom_errorbar(aes(ymin=-conf.low, ymax=-conf.high), width=0.4) +
+  coord_flip() +
+  scale_color_manual(values = c("navy", "darkred"), labels = c("Positive", "Negative")) +
+  labs(title = "Effect of Funding Type on Startup Success",
+       subtitle = "Point estimates with 95% confidence intervals",
+       y = "Coefficient Estimate",
+       x = "Funding Type") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+```
+
+The results from the logistic regression are visually presented in Figure 3.4.3, where the point estimates with their corresponding 95% confidence intervals indicate the influence of different funding types on startup success. Types of funding that are plotted to the right of the zero line (colored in blue) exercise a positive influence, implying that, when other factors are held constant, they are associated with increased odds of startup success. On the contrary, funding types situated to the left of the zero line (colored in red), such as `product_crowdfunding` and `equity_crowdfunding`, exhibit a negative relationship with the likelihood of startup success.
+
+
+## Discussion
+
+The analysis unearths a compelling association between the types of funding procured and the likelihood of startup success. Notably, ventures buoyed by venture and grant funding exhibit heightened prospects of triumph, while those reliant on equity crowdfunding and product crowdfunding face comparatively diminished success rates. These findings underscore the pivotal role of funding modalities in shaping the success paradigms of nascent ventures, prompting stakeholders to strategically navigate the funding landscape to optimize growth trajectories and bolster resilience against market vagaries.
