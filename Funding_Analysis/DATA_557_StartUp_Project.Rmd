@@ -158,8 +158,13 @@ The Chi-Square test returned a test statistic of 4971.9 with 12 degrees of freed
 
 ```{r}
 
-table_prop <- prop.table(contingency_table, margin = 2) # Normalize by columns to get proportions
-melted_table <- melt(contingency_table) # Melt the table for ggplot
+table <- as.matrix(table(data_chi_square$success_metric_updated, data_chi_square$primary_funding_type))
+
+# Convert the table to proportions
+table_prop <- prop.table(table, margin = 2) # Normalize by columns to get proportions
+
+# Melt the table for use with ggplot
+melted_table <- melt(table_prop)
 
 # Create the heatmap
 ggplot(melted_table, aes(x=Var1, y=Var2, fill=value)) + 
@@ -174,7 +179,6 @@ ggplot(melted_table, aes(x=Var1, y=Var2, fill=value)) +
        x = "Funding Type",
        y = "Success Category",
        fill = "Proportion")
-
 
 ```
 
