@@ -1,0 +1,357 @@
+---
+title: "Does Location influence startup success" 
+output:
+  pdf_document: default
+  html_document: default
+---
+
+## Reading the CSV
+
+
+```{r}
+df <- read.csv("C:/Users/chaki/Downloads/cleaned_investments_VC.csv")
+```
+
+```{r}
+head(df)
+```
+
+```{r}
+nrow(df)
+```
+
+# Country level analysis
+
+## Data Manipulation
+
+```{r}
+library(tidyverse)
+top_5_countries <- df %>%
+  count(country, sort = TRUE) %>%
+  head(5) %>%
+  pull(country)
+
+df$country[!(df$country %in% top_5_countries)] <- "Others"
+head(df)
+```
+
+## Visualising success status proportion (as percentage) for countries
+
+```{r}
+library(ggplot2)
+
+ggplot(df, aes(x = country, fill = success_metric_updated)) +
+  geom_bar(stat = "count", position = "fill") +
+  scale_fill_brewer(palette = "Set3") +
+  scale_y_continuous(name = "percent",
+                     breaks = c(0, 0.5, 1),
+                     labels = scales::percent(c(0, 0.5, 1))) +
+  labs(title = "Proportion of Success Metrics by Country",
+       x = "Country",
+       y = "Proportion") +
+  # Increase font size and rotate x-axis labels
+  theme(axis.text = element_text(size = 14),
+        axis.title = element_text(size = 16),
+        axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+## Merging "Potentially Successfully" into "Unsuccessful"
+
+```{r}
+df_new <- df
+df_new$success_metric_updated[df$success_metric_updated == 'Potentially Successful'] <- 'Unsuccessful'
+head(df)
+```
+
+```{r}
+df_new <- df_new[c("country", "success_metric_updated")]
+head(df_new)
+```
+
+## Contigency tables
+
+```{r}
+tbl <- table(df_new$country,df_new$success_metric_updated)
+tbl
+```
+
+
+```{r}
+library(lsr)
+
+
+cramer_v <- cramersV(tbl)
+
+cat("Cramer's V:", cramer_v)
+```
+
+```{r}
+tbl_prop <- prop.table(tbl, 1)
+tbl_prop
+```
+
+## Chi square
+
+```{r}
+chisq.test(tbl)
+```
+
+# Testing if proportion of success for US is different from other countries
+
+```{r}
+# Create a new data frame with the "Others" category
+df_new_merge <- df[c("country", "success_metric_updated")]
+df_new_merge$country[!(df_new_merge$country %in% c("United States", "Others"))] <- "Others"
+
+# Create a new table with the updated data frame
+tbl_merge <- table(df_new_merge$country, df_new_merge$success_metric_updated)
+
+tbl_merge
+```
+
+```{r}
+cramer_v <- cramersV(tbl_merge)
+cat("Cramer's V:", cramer_v)
+```
+
+```{r}
+# Subset data for US and Others
+usa_data <- df_new_merge[df_new_merge$country == "United States", ]
+other_data <- df_new_merge[df_new_merge$country != "United States", ]
+
+# Calculate success proportions for each group
+p_usa <- sum(usa_data$success_metric_updated == "Successful") / nrow(usa_data)
+p_other <- sum(other_data$success_metric_updated == "Successful") / nrow(other_data)
+
+# Calculate pooled proportion (assuming equal variances)
+pooled_p <- (sum(usa_data$success_metric_updated == "Successful") + sum(other_data$success_metric_updated == "Successful")) / (nrow(usa_data) + nrow(other_data))
+
+# Calculate standard error for the difference in proportions
+se_diff <- sqrt(pooled_p * (1 - pooled_p) * (1/nrow(usa_data) + 1/nrow(other_data)))
+
+# Calculate the z-statistic
+z_stat <- (p_usa - p_other) / se_diff
+
+# Interpretation
+# A p-value less than the chosen significance level 0.05 indicates
+# a statistically significant difference between the success proportions
+# in US and Others category.
+```
+
+```{r}
+
+# Confidence level (e.g., 95%)
+confidence_level <- 0.95
+
+# Critical value (one-tailed) from standard normal distribution table for confidence level
+z_crit <- qnorm(1 - (1 - confidence_level) / 2, mean = 0, sd = 1)
+
+# Confidence interval for the difference in proportions
+lower_bound <- (p_usa - p_other) - z_crit * se_diff
+upper_bound <- (p_usa - p_other) + z_crit * se_diff
+
+# Interpretation
+# Report the z-statistic, p-value, and confidence interval.
+# The confidence interval captures the range of plausible values for the true
+# difference in success proportions between US and Others with a confidence level
+# of (e.g.,) 95%.
+
+cat("z-statistic:", z_stat, "\n")
+cat("p-value (two-tailed):", 2 * pnorm(-abs(z_stat), mean = 0, sd = 1, lower.tail = TRUE), "\n")
+cat("Confidence Interval (", confidence_level * 100, "%):", lower_bound, " - ", upper_bound, "\n")
+```
+
+# City level analysis
+
+```{r}
+df_us <- df %>%
+  filter(country == "United States")
+
+length(unique(df_us$city))
+
+top_5_cities <- df_us %>%
+  count(city, sort = TRUE) %>%
+  head(5) %>%
+  pull(city)
+
+df_us$city[!(df_us$city %in% top_5_cities)] <- "Others"
+head(df_us)
+```
+
+```{r}
+library(ggplot2)
+
+ggplot(df_us, aes(x = city, fill = success_metric_updated)) +
+  geom_bar(stat = "count", position = "fill") +
+  scale_fill_brewer(palette = "Set3") +
+  scale_y_continuous(name = "percent",
+                     breaks = c(0, 0.5, 1),
+                     labels = scales::percent(c(0, 0.5, 1))) +
+  labs(title = "Proportion of Success Metrics by City",
+       x = "City",
+       y = "Proportion") +
+  # Increase font size and rotate x-axis labels
+  theme(axis.text = element_text(size = 14),  # Change 14 to your desired size
+        axis.title = element_text(size = 16),  # Change 16 to your desired size
+        axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels
+
+```
+
+```{r}
+df_us_new <- df_us
+df_us_new$success_metric_updated[df_us$success_metric_updated == 'Potentially Successful'] <- 'Unsuccessful'
+```
+
+```{r}
+df_us_new <- df_us_new[c("city", "success_metric_updated")]
+head(df_us_new)
+```
+
+```{r}
+tbl2 <- table(df_us_new$city,df_us_new$success_metric_updated)
+tbl2
+```
+
+```{r}
+cramer_v <- cramersV(tbl2)
+
+cat("Cramer's V:", cramer_v)
+```
+
+```{r}
+tbl_prop2 <- prop.table(tbl2, 1)
+tbl_prop2
+```
+
+```{r}
+chisq.test(tbl2)
+```
+
+```{r}
+# Create a new data frame with the "Others" category
+df_us_new_merge <- df[c("city", "success_metric_updated")]
+df_us_new_merge$city[!(df_us_new_merge$city %in% c("Seattle", "Others"))] <- "Others"
+
+# Create a new table with the updated data frame
+tbl_us_merge <- table(df_us_new_merge$city, df_us_new_merge$success_metric_updated)
+
+tbl_us_merge
+```
+
+```{r}
+# Subset data for US and Others
+seattle_data <- df_us_new_merge[df_us_new_merge$city == "Seattle", ]
+other_data <- df_us_new_merge[df_us_new_merge$city != "Seattle", ]
+
+# Calculate success proportions for each group
+p_sea <- sum(seattle_data$success_metric_updated == "Successful") / nrow(seattle_data)
+p_other <- sum(other_data$success_metric_updated == "Successful") / nrow(other_data)
+
+# Calculate pooled proportion (assuming equal variances)
+pooled_p <- (sum(seattle_data$success_metric_updated == "Successful") + sum(other_data$success_metric_updated == "Successful")) / (nrow(seattle_data) + nrow(other_data))
+
+# Calculate standard error for the difference in proportions
+se_diff <- sqrt(pooled_p * (1 - pooled_p) * (1/nrow(seattle_data) + 1/nrow(other_data)))
+
+# Calculate the z-statistic
+z_stat <- (p_sea - p_other) / se_diff
+
+# Interpretation
+# A p-value less than the chosen significance level 0.05 indicates
+# a statistically significant difference between the success proportions
+# in US and Others category.
+```
+
+```{r}
+
+# Confidence level (e.g., 95%)
+confidence_level <- 0.95
+
+# Critical value (one-tailed) from standard normal distribution table for confidence level
+z_crit <- qnorm(1 - (1 - confidence_level) / 2, mean = 0, sd = 1)
+
+# Confidence interval for the difference in proportions
+lower_bound <- (p_sea - p_other) - z_crit * se_diff
+upper_bound <- (p_sea - p_other) + z_crit * se_diff
+
+# Interpretation
+# Report the z-statistic, p-value, and confidence interval.
+# The confidence interval captures the range of plausible values for the true
+# difference in success proportions between US and Others with a confidence level
+# of (e.g.,) 95%.
+
+cat("z-statistic:", z_stat, "\n")
+cat("p-value (two-tailed):", 2 * pnorm(-abs(z_stat), mean = 0, sd = 1, lower.tail = TRUE), "\n")
+cat("Confidence Interval (", confidence_level * 100, "%):", lower_bound, " - ", upper_bound, "\n")
+```
+
+# Additional analysis: Logistic Regression
+
+## Country level analysis
+
+```{r}
+df_new$success_metric_updated <- as.numeric(df_new$success_metric_updated == "Successful")
+```
+
+```{r}
+df_new <- within(df_new,relevel(factor(country),ref = "Others"))
+head(df_new)
+```
+
+```{r}
+model <- glm(success_metric_updated ~ country , data = df_new, family = "binomial")
+summary(model)
+```
+
+```{r}
+library("effects")
+plot(Effect('country', model), confint=T)
+```
+
+```{r}
+# Get the estimated coefficients
+coefs <- coef(model, simplify=TRUE)
+
+# Calculate odds ratios for each country compared to the reference category
+odds_ratios <- as.data.frame(exp(coefs))
+odds_ratios
+```
+
+## City level analysis
+
+```{r}
+df_us_new <- within(df_us_new,relevel(factor(city),ref = "Others"))
+```
+
+```{r}
+library(nnet)
+df_us_new$city <- as.factor(df_us_new$city)
+df_relevel_us <- df_us_new %>%
+  mutate(city = relevel(city, ref = "Seattle"))
+model2 <- multinom(success_metric_updated ~ city, data = df_relevel_us)
+summary(model2)
+```
+
+```{r}
+df_us_new$success_metric_updated <- as.numeric(df_us_new$success_metric_updated == "Successful")
+```
+
+```{r}
+model2 <- glm(success_metric_updated ~ city, data = df_us_new, family = "binomial")
+summary(model2)
+```
+
+```{r}
+# Get the estimated coefficients
+coefs <- coef(model2, simplify=TRUE)
+
+# Calculate odds ratios for each country compared to the reference category
+odds_ratios <- as.data.frame(exp(coefs))
+odds_ratios
+```
+
+```{r}
+library("effects")
+plot(Effect('city', model2), confint=T)
+```
+
