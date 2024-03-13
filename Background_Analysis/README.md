@@ -1,4 +1,4 @@
-# Exploratory Data Analysis on Startup Founders and their Academic Backgrounds
+# Does the involvement of specific personnel and backgrounds (Founders, Co-Founders, Board Members, Investors) affect the success of a company? - By Shivam Agarwal
 
 This question aims to analyze the relationship between the academic backgrounds of startup founders and the success of their ventures. By combining data from various sources, including details about founders, their educational degrees, and startup performance metrics, we aim to uncover valuable insights.
 
